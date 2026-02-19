@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Top List - By Oli</title>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        }
+        .repo-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d1117; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #58a6ff; 
+        }
+        .medal-1 { color: #f59e0b; } /* Gold */
+        .medal-2 { color: #9ca3af; } /* Silver */
+        .medal-3 { color: #b45309; } /* Bronze */
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Time range configuration
+    const TIME_FILTERS = [
+        { id: 'day', label: '本日熱門', days: 1 },
+        { id: 'month', label: '本月熱門', days: 30 },
+        { id: 'year', label: '本年熱門', days: 365 },
+        { id: 'all', label: '歷史總榜', days: null }
+    ];
+
+    // Sort configuration
+    const SORT_FILTERS = [
+        { id: 'stars', label: '星星數 (Stars)' },
+        { id: 'forks', label: '收藏數 (Forks)' }
+    ];
+
+    const App = () => {
+        const [repos, setRepos] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        
+        // State for filters
+        const [timeFilter, setTimeFilter] = useState('month');
+        const [sortFilter, setSortFilter] = useState('stars');
+        const [page, setPage] = useState(1);
+        const MAX_PAGES = 3;
+
+        useEffect(() => {
+            fetchRepos();
+            // Lucide icons need to be re-initialized after render
+            setTimeout(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, 100);
+        }, [timeFilter, sortFilter, page]);
+
+        const getDateQuery = (days) => {
+            if (!days) return 'created:>2008-01-01'; // Roughly GitHub start
+            const date = new Date();
+            date.setDate(date.getDate() - days);
+            const dateString = date.toISOString().split('T')[0];
+            return `created:>${dateString}`;
+        };
+
+        const fetchRepos = async () => {
+            setLoading(true);
+            setError(null);
+            
+            try {
+                const selectedTime = TIME_FILTERS.find(t => t.id === timeFilter);
+                const dateQuery = getDateQuery(selectedTime.days);
+                
+                // Construct API URL
+                // q: query string, sort: sorting metric, per_page: items per page
+                const apiUrl = `https://api.github.com/search/repositories?q=${dateQuery}&sort=${sortFilter}&order=desc&per_page=20&page=${page}`;
+                
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        throw new Error("API 請求次數過多，請稍後再試 (GitHub 限制每小時 60 次無金鑰請求)");
+                    }
+                    throw new Error("無法取得資料，請檢查網路連線");
+                }
+
+                const data = await response.json();
+                setRepos(data.items || []);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const handlePageChange = (newPage) => {
+            if (newPage >= 1 && newPage <= MAX_PAGES) {
+                setPage(newPage);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        };
+
+        const getRank = (index) => {
+            return (page - 1) * 20 + index + 1;
+        };
+
+        return (
+            <div className="min-h-screen flex flex-col items-center py-10 px-4">
+                
+                {/* Header */}
+                <header className="w-full max-w-4xl mb-8 text-center space-y-4">
+                    <div className="flex justify-center items-center gap-3">
+                        <i data-lucide="github" className="w-10 h-10 text-white"></i>
+                        <h1 className="text-4xl font-bold text-white tracking-tight">GitHub Top List</h1>
+                    </div>
+                    <p className="text-gray-400">
+                        探索 GitHub 上最熱門的開源專案 · Created by Oli
+                    </p>
+                </header>
+
+                {/* Filters */}
+                <div className="w-full max-w-4xl bg-[#161b22] border border-[#30363d] rounded-xl p-4 mb-8 shadow-xl">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                        
+                        {/* Time Filters */}
+                        <div className="flex bg-[#0d1117] rounded-lg p-1 border border-[#30363d]">
+                            {TIME_FILTERS.map((t) => (
+                                <button
+                                    key={t.id}
+                                    onClick={() => { setTimeFilter(t.id); setPage(1); }}
+                                    className={`px-4 py-1.5 text-sm rounded-md transition-all duration-200 ${
+                                        timeFilter === t.id 
+                                        ? 'bg-[#238636] text-white font-medium shadow-sm' 
+                                        : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
+                                    }`}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Sort Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-500">排序依據:</span>
+                            <select 
+                                value={sortFilter}
+                                onChange={(e) => { setSortFilter(e.target.value); setPage(1); }}
+                                className="bg-[#0d1117] text-white border border-[#30363d] text-sm rounded-lg focus:ring-[#58a6ff] focus:border-[#58a6ff] block p-2 outline-none"
+                            >
+                                {SORT_FILTERS.map(s => (
+                                    <option key={s.id} value={s.id}>{s.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Content Area */}
+                <div className="w-full max-w-4xl min-h-[500px]">
+                    {loading ? (
+                        <div className="flex flex-col items-center justify-center h-64 space-y-4">
+                            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#58a6ff]"></div>
+                            <p className="text-gray-400 animate-pulse">正在從 GitHub 載入數據...</p>
+                        </div>
+                    ) : error ? (
+                        <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-6 text-center text-red-200">
+                            <i data-lucide="alert-circle" className="w-8 h-8 mx-auto mb-2 text-red-400"></i>
+                            {error}
+                        </div>
+                    ) : (
+                        <div className="grid gap-4">
+                            {repos.map((repo, index) => {
+                                const rank = getRank(index);
+                                return (
+                                    <div key={repo.id} className="repo-card bg-[#161b22] border border-[#30363d] rounded-xl p-5 transition-all duration-200 hover:border-[#58a6ff] relative overflow-hidden group">
+                                        
+                                        {/* Rank Badge */}
+                                        <div className="absolute top-4 right-4 text-2xl font-black opacity-20 group-hover:opacity-40 select-none">
+                                            #{rank}
+                                        </div>
+
+                                        <div className="flex items-start gap-4">
+                                            {/* Rank Indicator / Icon */}
+                                            <div className="flex-shrink-0 flex flex-col items-center justify-center w-12 pt-1">
+                                                {rank === 1 && <i data-lucide="trophy" className="w-6 h-6 medal-1 mb-1"></i>}
+                                                {rank === 2 && <i data-lucide="medal" className="w-6 h-6 medal-2 mb-1"></i>}
+                                                {rank === 3 && <i data-lucide="medal" className="w-6 h-6 medal-3 mb-1"></i>}
+                                                <span className={`font-mono font-bold ${rank <= 3 ? 'text-white' : 'text-gray-500'}`}>{rank}</span>
+                                            </div>
+
+                                            {/* Repo Info */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <img src={repo.owner.avatar_url} alt={repo.owner.login} className="w-5 h-5 rounded-full" />
+                                                    <a href={repo.html_url} target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] font-semibold text-lg hover:underline truncate">
+                                                        {repo.full_name}
+                                                    </a>
+                                                </div>
+                                                
+                                                <p className="text-gray-400 text-sm mb-3 line-clamp-2">
+                                                    {repo.description || "這個專案沒有描述..."}
+                                                </p>
+
+                                                {/* Meta Data */}
+                                                <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
+                                                    {repo.language && (
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="w-2 h-2 rounded-full bg-[#f1e05a]"></span>
+                                                            {repo.language}
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center gap-1 text-[#e3b341]">
+                                                        <i data-lucide="star" className="w-3 h-3 fill-current"></i>
+                                                        {repo.stargazers_count.toLocaleString()}
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <i data-lucide="git-fork" className="w-3 h-3"></i>
+                                                        {repo.forks_count.toLocaleString()}
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <i data-lucide="eye" className="w-3 h-3"></i>
+                                                        {(repo.watchers_count * 3 + repo.stargazers_count * 0.1).toFixed(0)} <span className="opacity-50">(熱度)</span>
+                                                    </div>
+                                                    <div className="ml-auto text-gray-500">
+                                                        Updated: {new Date(repo.updated_at).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Pagination */}
+                {!loading && !error && (
+                    <div className="mt-8 flex items-center gap-2">
+                        <button 
+                            onClick={() => handlePageChange(page - 1)}
+                            disabled={page === 1}
+                            className="px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-md text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#30363d] transition-colors"
+                        >
+                            上一頁
+                        </button>
+                        
+                        <div className="flex gap-1">
+                            {[1, 2, 3].map(p => (
+                                <button
+                                    key={p}
+                                    onClick={() => handlePageChange(p)}
+                                    className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-medium transition-colors ${
+                                        page === p 
+                                        ? 'bg-[#1f6feb] text-white' 
+                                        : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
+                                    }`}
+                                >
+                                    {p}
+                                </button>
+                            ))}
+                        </div>
+
+                        <button 
+                            onClick={() => handlePageChange(page + 1)}
+                            disabled={page === MAX_PAGES}
+                            className="px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-md text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#30363d] transition-colors"
+                        >
+                            下一頁
+                        </button>
+                    </div>
+                )}
+
+                {/* Footer */}
+                <footer className="mt-12 text-gray-500 text-sm pb-4">
+                    <p>&copy; {new Date().getFullYear()} Oli. All rights reserved.</p>
+                </footer>
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+</script>
+
+</body>
+</html>
+
