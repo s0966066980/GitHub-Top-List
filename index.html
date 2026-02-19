@@ -3,44 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GitHub Top List - By Oli</title>
+    <title>GitHub Top List - Ultimate Version</title>
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX -->
+    <!-- Babel -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Marked.js for README parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Tailwind Typography for Markdown styling -->
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     
     <style>
         body {
             background-color: #0d1117;
             color: #c9d1d9;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
         }
+        .repo-card { transition: all 0.2s ease; }
         .repo-card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            border-color: #58a6ff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
+        /* Markdown Styles Override for Dark Mode */
+        .prose { color: #c9d1d9; max-width: none; }
+        .prose h1, .prose h2, .prose h3, .prose strong { color: #fff; }
+        .prose a { color: #58a6ff; text-decoration: none; }
+        .prose a:hover { text-decoration: underline; }
+        .prose code { color: #ff7b72; background: #161b22; padding: 0.2em 0.4em; border-radius: 4px; }
+        .prose pre { background: #161b22; }
+        .prose img { border-radius: 8px; max-width: 100%; }
+        
         /* Custom Scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #0d1117; 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #30363d; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #58a6ff; 
-        }
-        .medal-1 { color: #f59e0b; } /* Gold */
-        .medal-2 { color: #9ca3af; } /* Silver */
-        .medal-3 { color: #b45309; } /* Bronze */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0d1117; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #58a6ff; }
+        
+        .medal-1 { color: #f59e0b; filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.5)); } 
+        .medal-2 { color: #e5e7eb; filter: drop-shadow(0 0 10px rgba(229, 231, 235, 0.5)); } 
+        .medal-3 { color: #d97706; filter: drop-shadow(0 0 10px rgba(217, 119, 6, 0.5)); }
     </style>
 </head>
 <body>
@@ -48,9 +55,9 @@
 <div id="root"></div>
 
 <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
-    // Time range configuration
+    // --- Configurations ---
     const TIME_FILTERS = [
         { id: 'day', label: '本日熱門', days: 1 },
         { id: 'month', label: '本月熱門', days: 30 },
@@ -58,67 +65,239 @@
         { id: 'all', label: '歷史總榜', days: null }
     ];
 
-    // Sort configuration
     const SORT_FILTERS = [
-        { id: 'stars', label: '星星數 (Stars)' },
-        { id: 'forks', label: '收藏數 (Forks)' }
+        { id: 'stars', label: '依星星 (Stars)' },
+        { id: 'forks', label: '依收藏 (Forks)' }
     ];
 
+    const LANGUAGES = [
+        { id: 'all', label: '所有語言' },
+        { id: 'javascript', label: 'JavaScript' },
+        { id: 'typescript', label: 'TypeScript' },
+        { id: 'python', label: 'Python' },
+        { id: 'java', label: 'Java' },
+        { id: 'go', label: 'Go' },
+        { id: 'rust', label: 'Rust' },
+        { id: 'c++', label: 'C++' },
+        { id: 'swift', label: 'Swift' },
+        { id: 'html', label: 'HTML' },
+        { id: 'css', label: 'CSS' }
+    ];
+
+    const ITEMS_PER_PAGE = 10;
+    const MAX_PAGES = 3;
+    const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes cache
+
+    // --- Components ---
+
+    // 1. Modal for README
+    const ReadmeModal = ({ isOpen, onClose, content, repoName, loading }) => {
+        if (!isOpen) return null;
+
+        return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={onClose}>
+                <div className="bg-[#0d1117] border border-[#30363d] w-full max-w-4xl h-[85vh] rounded-xl flex flex-col shadow-2xl relative" onClick={e => e.stopPropagation()}>
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-4 border-b border-[#30363d] bg-[#161b22] rounded-t-xl">
+                        <div className="flex items-center gap-2">
+                            <i data-lucide="book-open" className="text-white"></i>
+                            <h2 className="text-lg font-bold text-white truncate max-w-md">{repoName} - README</h2>
+                        </div>
+                        <button onClick={onClose} className="p-2 hover:bg-[#30363d] rounded-full text-gray-400 hover:text-white transition-colors">
+                            <i data-lucide="x" className="w-6 h-6"></i>
+                        </button>
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                        {loading ? (
+                            <div className="flex flex-col items-center justify-center h-full">
+                                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#58a6ff]"></div>
+                                <p className="mt-4 text-gray-400">正在下載 README...</p>
+                            </div>
+                        ) : content ? (
+                            <div className="prose prose-invert prose-sm md:prose-base max-w-none" dangerouslySetInnerHTML={{ __html: content }} />
+                        ) : (
+                            <div className="text-center text-gray-500 py-20">
+                                <i data-lucide="file-x" className="w-12 h-12 mx-auto mb-2 opacity-50"></i>
+                                <p>無法讀取此專案的 README</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // 2. Main App
     const App = () => {
+        // State
         const [repos, setRepos] = useState([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         
-        // State for filters
+        // Filters
         const [timeFilter, setTimeFilter] = useState('month');
         const [sortFilter, setSortFilter] = useState('stars');
+        const [langFilter, setLangFilter] = useState('all');
         const [page, setPage] = useState(1);
-        const MAX_PAGES = 3;
+        
+        // Features
+        const [viewMode, setViewMode] = useState('list'); // 'list' or 'bookmarks'
+        const [bookmarks, setBookmarks] = useState([]);
+        
+        // Modal State
+        const [modalOpen, setModalOpen] = useState(false);
+        const [readmeContent, setReadmeContent] = useState('');
+        const [readmeLoading, setReadmeLoading] = useState(false);
+        const [currentRepoName, setCurrentRepoName] = useState('');
 
+        // Initial Load (Bookmarks)
         useEffect(() => {
-            fetchRepos();
-            // Lucide icons need to be re-initialized after render
-            setTimeout(() => {
-                if (window.lucide) window.lucide.createIcons();
-            }, 100);
-        }, [timeFilter, sortFilter, page]);
+            const savedBookmarks = localStorage.getItem('oli_github_bookmarks');
+            if (savedBookmarks) {
+                setBookmarks(JSON.parse(savedBookmarks));
+            }
+        }, []);
+
+        // Icons Refresh
+        useEffect(() => {
+            if (window.lucide) window.lucide.createIcons();
+        }, [repos, viewMode, bookmarks, modalOpen]);
+
+        // Main Fetch Logic
+        useEffect(() => {
+            if (viewMode === 'list') {
+                fetchReposWithCache();
+            } else {
+                // In bookmark mode, we don't fetch from API, just render bookmarks
+                setLoading(false);
+            }
+        }, [timeFilter, sortFilter, langFilter, page, viewMode]);
+
+        // --- Helpers ---
+        
+        const generateCacheKey = () => {
+            return `github_cache_${timeFilter}_${sortFilter}_${langFilter}_${page}`;
+        };
 
         const getDateQuery = (days) => {
-            if (!days) return 'created:>2008-01-01'; // Roughly GitHub start
+            // Fix for "All Time" sorting issue
+            if (!days) return 'stars:>1000'; // Base threshold for all time to ensure popularity
+            
             const date = new Date();
             date.setDate(date.getDate() - days);
             const dateString = date.toISOString().split('T')[0];
             return `created:>${dateString}`;
         };
 
-        const fetchRepos = async () => {
+        const fetchReposWithCache = async () => {
             setLoading(true);
             setError(null);
+
+            const cacheKey = generateCacheKey();
+            const cachedData = localStorage.getItem(cacheKey);
             
+            // 1. Check Cache
+            if (cachedData) {
+                const { timestamp, data } = JSON.parse(cachedData);
+                if (Date.now() - timestamp < CACHE_DURATION) {
+                    console.log("Using cached data");
+                    setRepos(data);
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            // 2. Fetch API
             try {
                 const selectedTime = TIME_FILTERS.find(t => t.id === timeFilter);
-                const dateQuery = getDateQuery(selectedTime.days);
+                let query = getDateQuery(selectedTime.days);
                 
-                // Construct API URL
-                // q: query string, sort: sorting metric, per_page: items per page
-                const apiUrl = `https://api.github.com/search/repositories?q=${dateQuery}&sort=${sortFilter}&order=desc&per_page=20&page=${page}`;
+                if (langFilter !== 'all') {
+                    query += `+language:${langFilter}`;
+                }
+
+                // API Construction
+                const apiUrl = `https://api.github.com/search/repositories?q=${query}&sort=${sortFilter}&order=desc&per_page=${ITEMS_PER_PAGE}&page=${page}`;
                 
                 const response = await fetch(apiUrl);
                 
                 if (!response.ok) {
-                    if (response.status === 403) {
-                        throw new Error("API 請求次數過多，請稍後再試 (GitHub 限制每小時 60 次無金鑰請求)");
-                    }
-                    throw new Error("無法取得資料，請檢查網路連線");
+                    if (response.status === 403) throw new Error("API 請求限制 (60次/小時)，請稍候再試或使用「我的收藏」功能");
+                    throw new Error("連線失敗");
                 }
 
                 const data = await response.json();
-                setRepos(data.items || []);
+                const items = data.items || [];
+                
+                setRepos(items);
+
+                // 3. Save to Cache
+                localStorage.setItem(cacheKey, JSON.stringify({
+                    timestamp: Date.now(),
+                    data: items
+                }));
+
             } catch (err) {
                 setError(err.message);
             } finally {
                 setLoading(false);
             }
+        };
+
+        // --- Features Implementation ---
+
+        const toggleBookmark = (repo) => {
+            let newBookmarks;
+            const exists = bookmarks.some(b => b.id === repo.id);
+            
+            if (exists) {
+                newBookmarks = bookmarks.filter(b => b.id !== repo.id);
+            } else {
+                newBookmarks = [repo, ...bookmarks];
+            }
+            
+            setBookmarks(newBookmarks);
+            localStorage.setItem('oli_github_bookmarks', JSON.stringify(newBookmarks));
+        };
+
+        const fetchReadme = async (repo) => {
+            setModalOpen(true);
+            setCurrentRepoName(repo.full_name);
+            setReadmeLoading(true);
+            setReadmeContent('');
+
+            try {
+                // Use raw.githubusercontent to bypass API rate limits if possible
+                // Default branch is needed
+                const branch = repo.default_branch || 'master';
+                const url = `https://raw.githubusercontent.com/${repo.full_name}/${branch}/README.md`;
+                
+                const res = await fetch(url);
+                if (res.ok) {
+                    const text = await res.text();
+                    setReadmeContent(marked.parse(text));
+                } else {
+                    // Fallback to API if raw fails
+                    const apiUrl = `https://api.github.com/repos/${repo.full_name}/readme`;
+                    const apiRes = await fetch(apiUrl, { headers: { 'Accept': 'application/vnd.github.v3.raw' }});
+                    if(apiRes.ok) {
+                        const text = await apiRes.text();
+                        setReadmeContent(marked.parse(text));
+                    } else {
+                        throw new Error("Readme not found");
+                    }
+                }
+            } catch (e) {
+                setReadmeContent('<p class="text-red-400">無法載入 README，可能檔案不存在或網路受限。</p>');
+            } finally {
+                setReadmeLoading(false);
+            }
+        };
+
+        const getTranslateLink = (text) => {
+            return `https://translate.google.com/?sl=auto&tl=zh-TW&text=${encodeURIComponent(text)}&op=translate`;
         };
 
         const handlePageChange = (newPage) => {
@@ -128,38 +307,56 @@
             }
         };
 
-        const getRank = (index) => {
-            return (page - 1) * 20 + index + 1;
-        };
+        // Render Logic
+        const displayRepos = viewMode === 'bookmarks' ? bookmarks : repos;
+        const isBookmarkMode = viewMode === 'bookmarks';
 
         return (
-            <div className="min-h-screen flex flex-col items-center py-10 px-4">
+            <div className="min-h-screen flex flex-col items-center py-6 px-4 md:px-6 max-w-6xl mx-auto pb-20">
                 
-                {/* Header */}
-                <header className="w-full max-w-4xl mb-8 text-center space-y-4">
-                    <div className="flex justify-center items-center gap-3">
-                        <i data-lucide="github" className="w-10 h-10 text-white"></i>
-                        <h1 className="text-4xl font-bold text-white tracking-tight">GitHub Top List</h1>
+                {/* 1. Header & Stats */}
+                <header className="w-full mb-6 flex flex-col md:flex-row justify-between items-end gap-4 border-b border-[#30363d] pb-6">
+                    <div className="flex items-center gap-4">
+                        <div className="bg-white p-2 rounded-full">
+                            <i data-lucide="github" className="w-8 h-8 text-black"></i>
+                        </div>
+                        <div>
+                            <h1 className="text-3xl font-bold text-white tracking-tight">GitHub Top List</h1>
+                            <p className="text-gray-400 text-sm">Design for Oli · 探索 & 收藏頂尖開源專案</p>
+                        </div>
                     </div>
-                    <p className="text-gray-400">
-                        探索 GitHub 上最熱門的開源專案 · Created by Oli
-                    </p>
+                    
+                    {/* View Switcher */}
+                    <div className="flex bg-[#161b22] p-1 rounded-lg border border-[#30363d]">
+                        <button 
+                            onClick={() => setViewMode('list')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${viewMode === 'list' ? 'bg-[#1f6feb] text-white' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            <i data-lucide="list" className="w-4 h-4"></i> 探索列表
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('bookmarks')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${viewMode === 'bookmarks' ? 'bg-[#d29922] text-white' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            <i data-lucide="heart" className={`w-4 h-4 ${bookmarks.length > 0 ? 'fill-current' : ''}`}></i> 
+                            我的收藏 ({bookmarks.length})
+                        </button>
+                    </div>
                 </header>
 
-                {/* Filters */}
-                <div className="w-full max-w-4xl bg-[#161b22] border border-[#30363d] rounded-xl p-4 mb-8 shadow-xl">
-                    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                        
-                        {/* Time Filters */}
-                        <div className="flex bg-[#0d1117] rounded-lg p-1 border border-[#30363d]">
+                {/* 2. Controls (Only show in List Mode) */}
+                {!isBookmarkMode && (
+                    <div className="w-full grid grid-cols-1 md:grid-cols-12 gap-4 mb-6 sticky top-2 z-10">
+                        {/* Time Filter */}
+                        <div className="md:col-span-5 bg-[#161b22]/90 backdrop-blur border border-[#30363d] rounded-xl p-2 flex justify-between shadow-lg">
                             {TIME_FILTERS.map((t) => (
                                 <button
                                     key={t.id}
                                     onClick={() => { setTimeFilter(t.id); setPage(1); }}
-                                    className={`px-4 py-1.5 text-sm rounded-md transition-all duration-200 ${
+                                    className={`flex-1 px-2 py-1.5 text-xs md:text-sm rounded-lg transition-all ${
                                         timeFilter === t.id 
-                                        ? 'bg-[#238636] text-white font-medium shadow-sm' 
-                                        : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
+                                        ? 'bg-[#238636] text-white font-medium' 
+                                        : 'text-gray-400 hover:text-white hover:bg-[#30363d]'
                                     }`}
                                 >
                                     {t.label}
@@ -167,90 +364,148 @@
                             ))}
                         </div>
 
+                        {/* Language Filter */}
+                        <div className="md:col-span-4 relative">
+                            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                                <i data-lucide="code-2" className="w-4 h-4 text-gray-400"></i>
+                            </div>
+                            <select 
+                                value={langFilter}
+                                onChange={(e) => { setLangFilter(e.target.value); setPage(1); }}
+                                className="w-full h-full bg-[#161b22]/90 backdrop-blur border border-[#30363d] text-white text-sm rounded-xl focus:ring-2 focus:ring-[#58a6ff] focus:border-transparent block pl-10 p-2.5 appearance-none cursor-pointer shadow-lg"
+                            >
+                                {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                            </select>
+                        </div>
+
                         {/* Sort Filter */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-500">排序依據:</span>
+                        <div className="md:col-span-3 relative">
+                            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                                <i data-lucide="arrow-up-down" className="w-4 h-4 text-gray-400"></i>
+                            </div>
                             <select 
                                 value={sortFilter}
                                 onChange={(e) => { setSortFilter(e.target.value); setPage(1); }}
-                                className="bg-[#0d1117] text-white border border-[#30363d] text-sm rounded-lg focus:ring-[#58a6ff] focus:border-[#58a6ff] block p-2 outline-none"
+                                className="w-full h-full bg-[#161b22]/90 backdrop-blur border border-[#30363d] text-white text-sm rounded-xl focus:ring-2 focus:ring-[#58a6ff] focus:border-transparent block pl-10 p-2.5 appearance-none cursor-pointer shadow-lg"
                             >
-                                {SORT_FILTERS.map(s => (
-                                    <option key={s.id} value={s.id}>{s.label}</option>
-                                ))}
+                                {SORT_FILTERS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                             </select>
                         </div>
                     </div>
-                </div>
+                )}
 
-                {/* Content Area */}
-                <div className="w-full max-w-4xl min-h-[500px]">
+                {/* 3. Main Content List */}
+                <div className="w-full min-h-[500px]">
                     {loading ? (
                         <div className="flex flex-col items-center justify-center h-64 space-y-4">
-                            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#58a6ff]"></div>
-                            <p className="text-gray-400 animate-pulse">正在從 GitHub 載入數據...</p>
+                            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#58a6ff]"></div>
+                            <p className="text-gray-400 animate-pulse text-sm">正在從 GitHub 同步資料...</p>
                         </div>
                     ) : error ? (
-                        <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-6 text-center text-red-200">
-                            <i data-lucide="alert-circle" className="w-8 h-8 mx-auto mb-2 text-red-400"></i>
-                            {error}
+                        <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-8 text-center text-red-200">
+                            <i data-lucide="wifi-off" className="w-12 h-12 mx-auto mb-4 text-red-400"></i>
+                            <h3 className="text-lg font-bold mb-2">發生錯誤</h3>
+                            <p>{error}</p>
+                            <button onClick={fetchReposWithCache} className="mt-6 px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-white transition-colors">重試連線</button>
+                        </div>
+                    ) : displayRepos.length === 0 ? (
+                        <div className="text-center py-20 bg-[#161b22] rounded-xl border border-[#30363d] border-dashed">
+                            <i data-lucide={isBookmarkMode ? "heart-off" : "search-x"} className="w-16 h-16 mx-auto mb-4 text-gray-600"></i>
+                            <p className="text-gray-400 text-lg">{isBookmarkMode ? "你還沒有收藏任何專案" : "找不到符合條件的專案"}</p>
                         </div>
                     ) : (
                         <div className="grid gap-4">
-                            {repos.map((repo, index) => {
-                                const rank = getRank(index);
+                            {displayRepos.map((repo, index) => {
+                                const rank = isBookmarkMode ? index + 1 : (page - 1) * ITEMS_PER_PAGE + index + 1;
+                                const isBookmarked = bookmarks.some(b => b.id === repo.id);
+
                                 return (
-                                    <div key={repo.id} className="repo-card bg-[#161b22] border border-[#30363d] rounded-xl p-5 transition-all duration-200 hover:border-[#58a6ff] relative overflow-hidden group">
+                                    <div key={repo.id} className="repo-card bg-[#161b22] border border-[#30363d] rounded-xl p-5 relative group overflow-hidden">
                                         
                                         {/* Rank Badge */}
-                                        <div className="absolute top-4 right-4 text-2xl font-black opacity-20 group-hover:opacity-40 select-none">
-                                            #{rank}
-                                        </div>
+                                        {!isBookmarkMode && (
+                                            <div className="absolute -right-4 -top-4 w-16 h-16 bg-[#21262d] rounded-bl-3xl flex items-end justify-start p-3 z-0 opacity-50 group-hover:opacity-100 transition-opacity">
+                                                <span className={`text-xl font-black ${rank <= 3 ? 'text-[#e3b341]' : 'text-gray-500'}`}>#{rank}</span>
+                                            </div>
+                                        )}
 
-                                        <div className="flex items-start gap-4">
-                                            {/* Rank Indicator / Icon */}
-                                            <div className="flex-shrink-0 flex flex-col items-center justify-center w-12 pt-1">
-                                                {rank === 1 && <i data-lucide="trophy" className="w-6 h-6 medal-1 mb-1"></i>}
-                                                {rank === 2 && <i data-lucide="medal" className="w-6 h-6 medal-2 mb-1"></i>}
-                                                {rank === 3 && <i data-lucide="medal" className="w-6 h-6 medal-3 mb-1"></i>}
-                                                <span className={`font-mono font-bold ${rank <= 3 ? 'text-white' : 'text-gray-500'}`}>{rank}</span>
+                                        <div className="flex flex-col md:flex-row gap-5 relative z-10">
+                                            
+                                            {/* Avatar & Rank */}
+                                            <div className="flex md:flex-col items-center gap-3 md:w-16 flex-shrink-0">
+                                                {!isBookmarkMode && rank <= 3 && (
+                                                    <i data-lucide="trophy" className={`w-6 h-6 ${rank===1?'medal-1':rank===2?'medal-2':'medal-3'}`}></i>
+                                                )}
+                                                <img src={repo.owner.avatar_url} loading="lazy" className="w-12 h-12 rounded-full border-2 border-[#30363d] group-hover:border-[#58a6ff] transition-colors" alt="" />
                                             </div>
 
-                                            {/* Repo Info */}
+                                            {/* Info */}
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <img src={repo.owner.avatar_url} alt={repo.owner.login} className="w-5 h-5 rounded-full" />
-                                                    <a href={repo.html_url} target="_blank" rel="noopener noreferrer" className="text-[#58a6ff] font-semibold text-lg hover:underline truncate">
-                                                        {repo.full_name}
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-2">
+                                                    <a href={repo.html_url} target="_blank" className="text-[#58a6ff] font-bold text-xl hover:underline truncate max-w-full">
+                                                        {repo.name}
                                                     </a>
+                                                    <span className="text-gray-500 text-sm">/ {repo.owner.login}</span>
+                                                    
+                                                    {/* Bookmark Button */}
+                                                    <button 
+                                                        onClick={() => toggleBookmark(repo)}
+                                                        className={`ml-auto p-1.5 rounded-full hover:bg-[#30363d] transition-colors ${isBookmarked ? 'text-red-500' : 'text-gray-500'}`}
+                                                        title={isBookmarked ? "移除收藏" : "加入收藏"}
+                                                    >
+                                                        <i data-lucide="heart" className={`w-5 h-5 ${isBookmarked ? 'fill-current' : ''}`}></i>
+                                                    </button>
                                                 </div>
-                                                
-                                                <p className="text-gray-400 text-sm mb-3 line-clamp-2">
-                                                    {repo.description || "這個專案沒有描述..."}
+
+                                                <p className="text-gray-300 text-sm mb-3 leading-relaxed">
+                                                    {repo.description || "暫無描述..."}
                                                 </p>
 
-                                                {/* Meta Data */}
-                                                <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400">
-                                                    {repo.language && (
-                                                        <div className="flex items-center gap-1">
-                                                            <span className="w-2 h-2 rounded-full bg-[#f1e05a]"></span>
-                                                            {repo.language}
+                                                {/* Topics */}
+                                                {repo.topics && repo.topics.length > 0 && (
+                                                    <div className="flex flex-wrap gap-2 mb-3">
+                                                        {repo.topics.slice(0, 5).map(topic => (
+                                                            <span key={topic} className="px-2 py-0.5 bg-[#1f6feb]/10 text-[#58a6ff] text-xs rounded-full border border-[#1f6feb]/20">
+                                                                {topic}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Action Bar */}
+                                                <div className="flex flex-wrap items-center gap-4 pt-3 border-t border-[#30363d]/50">
+                                                    
+                                                    {/* Metrics */}
+                                                    <div className="flex items-center gap-4 text-xs font-mono text-gray-400">
+                                                        {repo.language && (
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="w-2.5 h-2.5 rounded-full bg-[#f1e05a]"></span>
+                                                                {repo.language}
+                                                            </div>
+                                                        )}
+                                                        <div className="flex items-center gap-1 text-[#e3b341]">
+                                                            <i data-lucide="star" className="w-3.5 h-3.5 fill-current"></i>
+                                                            {repo.stargazers_count.toLocaleString()}
                                                         </div>
-                                                    )}
-                                                    <div className="flex items-center gap-1 text-[#e3b341]">
-                                                        <i data-lucide="star" className="w-3 h-3 fill-current"></i>
-                                                        {repo.stargazers_count.toLocaleString()}
+                                                        <div className="flex items-center gap-1">
+                                                            <i data-lucide="git-fork" className="w-3.5 h-3.5"></i>
+                                                            {repo.forks_count.toLocaleString()}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <i data-lucide="git-fork" className="w-3 h-3"></i>
-                                                        {repo.forks_count.toLocaleString()}
-                                                    </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <i data-lucide="eye" className="w-3 h-3"></i>
-                                                        {(repo.watchers_count * 3 + repo.stargazers_count * 0.1).toFixed(0)} <span className="opacity-50">(熱度)</span>
-                                                    </div>
-                                                    <div className="ml-auto text-gray-500">
-                                                        Updated: {new Date(repo.updated_at).toLocaleDateString()}
+
+                                                    {/* Functional Buttons */}
+                                                    <div className="flex items-center gap-2 ml-auto">
+                                                        {repo.description && (
+                                                            <a href={getTranslateLink(repo.description)} target="_blank" className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-[#58a6ff] border border-[#30363d] rounded hover:border-[#58a6ff] transition-colors">
+                                                                <i data-lucide="languages" className="w-3 h-3"></i> 翻譯
+                                                            </a>
+                                                        )}
+                                                        <button 
+                                                            onClick={() => fetchReadme(repo)}
+                                                            className="flex items-center gap-1 px-2 py-1 text-xs text-white bg-[#238636] hover:bg-[#2ea043] rounded transition-colors shadow-sm"
+                                                        >
+                                                            <i data-lucide="book-open" className="w-3 h-3"></i> README
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>
@@ -262,47 +517,45 @@
                     )}
                 </div>
 
-                {/* Pagination */}
-                {!loading && !error && (
-                    <div className="mt-8 flex items-center gap-2">
+                {/* 4. Pagination (Hidden in Bookmark Mode) */}
+                {!isBookmarkMode && !loading && !error && repos.length > 0 && (
+                    <div className="mt-8 flex gap-2">
                         <button 
                             onClick={() => handlePageChange(page - 1)}
                             disabled={page === 1}
-                            className="px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-md text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#30363d] transition-colors"
+                            className="w-10 h-10 flex items-center justify-center bg-[#21262d] border border-[#30363d] rounded-lg text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#30363d]"
                         >
-                            上一頁
+                            <i data-lucide="chevron-left" className="w-5 h-5"></i>
                         </button>
-                        
-                        <div className="flex gap-1">
-                            {[1, 2, 3].map(p => (
-                                <button
-                                    key={p}
-                                    onClick={() => handlePageChange(p)}
-                                    className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-medium transition-colors ${
-                                        page === p 
-                                        ? 'bg-[#1f6feb] text-white' 
-                                        : 'text-gray-400 hover:text-white hover:bg-[#21262d]'
-                                    }`}
-                                >
-                                    {p}
-                                </button>
-                            ))}
+                        <div className="flex items-center px-4 bg-[#0d1117] border border-[#30363d] rounded-lg text-sm text-gray-400">
+                            第 <span className="text-white font-bold mx-1">{page}</span> / {MAX_PAGES} 頁
                         </div>
-
                         <button 
                             onClick={() => handlePageChange(page + 1)}
                             disabled={page === MAX_PAGES}
-                            className="px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-md text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#30363d] transition-colors"
+                            className="w-10 h-10 flex items-center justify-center bg-[#21262d] border border-[#30363d] rounded-lg text-white disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[#30363d]"
                         >
-                            下一頁
+                            <i data-lucide="chevron-right" className="w-5 h-5"></i>
                         </button>
                     </div>
                 )}
 
                 {/* Footer */}
-                <footer className="mt-12 text-gray-500 text-sm pb-4">
-                    <p>&copy; {new Date().getFullYear()} Oli. All rights reserved.</p>
+                <footer className="mt-12 text-center">
+                    <p className="text-gray-600 text-xs">
+                        &copy; 2026 GitHub Top List - Oli Edition<br/>
+                        <span className="opacity-50">Local storage enabled to save API calls.</span>
+                    </p>
                 </footer>
+
+                {/* Modal Instance */}
+                <ReadmeModal 
+                    isOpen={modalOpen} 
+                    onClose={() => setModalOpen(false)} 
+                    content={readmeContent}
+                    repoName={currentRepoName}
+                    loading={readmeLoading}
+                />
             </div>
         );
     };
@@ -313,4 +566,5 @@
 
 </body>
 </html>
+
 
